@@ -2,13 +2,12 @@ package main
 
 import (
 	"flag"
+	"github.com/shegaoyuan/ninedb/controller"
+	"github.com/shegaoyuan/ninedb/engine"
+	"github.com/shegaoyuan/ninedb/models"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
-	"ninedb/controller"
-	"ninedb/engine"
-	"ninedb/models"
-	_ "ninedb/store"
 	"os"
 	"os/signal"
 	"runtime"
@@ -77,7 +76,7 @@ func sample() {
 	for i := 0; i < cnt; i++ {
 		m := models.TchMachine{ID: i, GID: 0, UID: i % 10}
 		//log.Printf("m:+%v", m)
-		engine.Insert(&m, "load")
+		engine.Load(&m)
 	}
 	end := time.Now().Unix()
 	log.Printf("insert %d records in %d second", cnt, end-start)

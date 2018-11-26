@@ -16,6 +16,6 @@ func (t *TchMachine) Index() [][]string {
 
 }
 
-func (t *TchMachine) GetID() int {
+func (t *TchMachine) GetUID() int {
 	return t.ID
 }

@@ -6,7 +6,7 @@ type User struct {
 	TCC int
 }
 
-func (u *User) GetID() int {
+func (u *User) GetUID() int {
 	return u.UID
 }
 

@@ -61,17 +61,19 @@ func work() {
 }
 
 func GetData(trx *Transaction) (uint64, []byte) { //return latest version data
-	lock := db.locks[trx.TableName]
+	tableName := trx.TableName
+	table := db.getTable(tableName)
+	lock := table.lock
 	lock.Lock()
 	defer lock.Unlock()
 
-	meta, ok := db.metas[trx.TableName][trx.ID]
+	meta, ok := table.metas[trx.ID]
 	if !ok || meta.SavedVersion >= trx.Version { //记录已被删除或当前版本小于已保存版本
 		return 0, nil
 	}
 
-	rid := db.rows[trx.TableName][trx.ID]
-	obj := db.tables[trx.TableName][rid]
+	idx := table.idxIndexes[trx.ID]
+	obj := table.rows[idx]
 	ver := meta.Version
 	buf, _ := json.Marshal(obj)
 
@@ -79,11 +81,13 @@ func GetData(trx *Transaction) (uint64, []byte) { //return latest version data
 }
 
 func updateSavedVersion(resp *Response) {
-	lock := db.locks[resp.TableName]
+	tableName := resp.TableName
+	table := db.getTable(tableName)
+	lock := table.lock
 	lock.Lock()
 	defer lock.Unlock()
 
-	if meta, ok := db.metas[resp.TableName][resp.ID]; ok && meta.SavedVersion < resp.SavedVersion {
+	if meta, ok := table.metas[resp.ID]; ok && meta.SavedVersion < resp.SavedVersion {
 		meta.SavedVersion = resp.SavedVersion
 		meta.SavedStamp = time.Now().Unix()
 	}
