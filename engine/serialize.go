@@ -62,7 +62,7 @@ func work() {
 
 func GetData(trx *Transaction) (uint64, []byte) { //return latest version data
 	tableName := trx.TableName
-	table := db.getTable(tableName)
+	table := GetTable(tableName)
 	lock := table.lock
 	lock.Lock()
 	defer lock.Unlock()
@@ -82,7 +82,7 @@ func GetData(trx *Transaction) (uint64, []byte) { //return latest version data
 
 func updateSavedVersion(resp *Response) {
 	tableName := resp.TableName
-	table := db.getTable(tableName)
+	table := GetTable(tableName)
 	lock := table.lock
 	lock.Lock()
 	defer lock.Unlock()

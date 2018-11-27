@@ -21,20 +21,6 @@ func getTableName(row Row) string {
 	return tableName
 }
 
-func CreateTable(row Row) {
-	tableName := getTableName(row)
-	log.Printf("tableName is %s", tableName)
-
-	db.rwLock.Lock()
-	defer db.rwLock.Unlock()
-
-	if tb := db.getTable(tableName); tb != nil {
-		panic(fmt.Errorf("%s has been created", tableName))
-	}
-
-	db.tables[tableName] = newTable(tableName)
-}
-
 func newTable(tableName string) *Table {
 	return &Table{
 		tableName:  tableName,
@@ -68,7 +54,7 @@ func (tb *Table) nextIdx() int {
 func put(tableName string, rid int) {
 	//check table exist and lock outer
 	select {
-	case db.getTable(tableName).allocChan <- rid:
+	case GetTable(tableName).allocChan <- rid:
 		return
 	default:
 		log.Printf("table %s's chan is full", tableName)
@@ -105,19 +91,8 @@ func (table *Table) sortIndex(index string) {
 	})
 }
 
-////////////////////////////////////////////////////////////////////////////////////
-
-func Insert(row Row) error {
-	return insert(row, false)
-}
-
-func Load(row Row) error {
-	return insert(row, true)
-}
-
-func insert(row Row, isLoad bool) error {
-	tableName := getTableName(row)
-	table := db.mustGetTable(tableName)
+func (table *Table) insert(row Row, isLoad bool) error {
+	tableName := table.tableName
 	uid := row.GetUID()
 
 	lock := table.lock
@@ -178,10 +153,8 @@ func insert(row Row, isLoad bool) error {
 }
 
 //全覆盖更新
-func Update(row Row) error {
-	tableName := getTableName(row)
-	table := db.mustGetTable(tableName)
-
+func (table *Table) Update(row Row) error {
+	tableName := table.tableName
 	uid := row.GetUID()
 
 	lock := table.lock
@@ -207,10 +180,8 @@ func Update(row Row) error {
 	return nil
 }
 
-//更新某个列 cmd 支持REPLACE， INC, DESC
-func UpdateFiled(row Row, fieldName string, cmd string, value interface{}) error {
-	tableName := getTableName(row)
-	table := db.mustGetTable(tableName)
+func (table *Table) UpdateFiled(row Row, fieldName string, cmd string, value interface{}) error {
+	tableName := table.tableName
 	uid := row.GetUID()
 
 	lock := table.lock
@@ -257,12 +228,8 @@ func UpdateFiled(row Row, fieldName string, cmd string, value interface{}) error
 	return nil
 }
 
-func Get(row Row) Row {
-	val := reflect.ValueOf(row)
-	typ := reflect.Indirect(val).Type()
-	tableName := typ.Name()
-
-	table := db.mustGetTable(tableName)
+func (table *Table) Get(row Row) Row {
+	tableName := getTableName(row)
 
 	uid := row.GetUID()
 	lock := table.lock
@@ -277,9 +244,8 @@ func Get(row Row) Row {
 	return nil
 }
 
-func Delete(row Row) {
+func (table *Table) Delete(row Row) {
 	tableName := getTableName(row)
-	table := db.mustGetTable(tableName)
 	uid := row.GetUID()
 	lock := table.lock
 	lock.Lock()

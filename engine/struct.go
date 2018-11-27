@@ -34,5 +34,6 @@ type Table struct {
 
 type DB struct {
 	rwLock sync.RWMutex
+	dbName string
 	tables map[string]*Table
 }
