@@ -12,6 +12,10 @@ func init() {
 	dbMap[DefaultDBName] = DefaultDB
 }
 
+func GetDB(dbName string) *DB {
+	return dbMap[dbName]
+}
+
 func CreateTable(row Row) {
 	DefaultDB.CreateTable(row)
 }
@@ -42,4 +46,8 @@ func Update(row Row) error {
 
 func GetTable(tableName string) *Table {
 	return DefaultDB.GetTable(tableName)
+}
+
+func SetPutTx(fn func(*Transaction)) {
+	putTrx = fn
 }

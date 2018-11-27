@@ -5,6 +5,7 @@ import (
 	"github.com/shegaoyuan/ninedb/controller"
 	"github.com/shegaoyuan/ninedb/engine"
 	"github.com/shegaoyuan/ninedb/models"
+	"github.com/shegaoyuan/ninedb/persist"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -54,7 +55,7 @@ func main() {
 }
 
 func sample() {
-
+	go persist.Work()
 	//////////////////建表/////////////////////////////////////////
 	u1 := models.User{UID: 1, GID: 0, TCC: 10000}
 	engine.CreateTable(&u1)

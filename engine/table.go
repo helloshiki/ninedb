@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"reflect"
@@ -35,7 +36,6 @@ func newTable(tableName string) *Table {
 	}
 }
 
-////////////////////////////内部调用////////////////////////////////////////////////////////
 func (tb *Table) nextIdx() int {
 	select {
 	case index := <-tb.allocChan:
@@ -51,23 +51,24 @@ func (tb *Table) nextIdx() int {
 	}
 }
 
-func put(tableName string, rid int) {
-	//check table exist and lock outer
+func (tb *Table) putIdx(idx int) {
 	select {
-	case GetTable(tableName).allocChan <- rid:
+	case tb.allocChan <- idx:
 		return
 	default:
-		log.Printf("table %s's chan is full", tableName)
+		log.Printf("table %s's chan is full", tb.tableName)
 	}
 }
 
 func (table *Table) sortIndex(index string) {
 	slock := table.sortlock
 	slock.Lock()
+
 	if table.sorting[index] {
 		slock.Unlock()
 		return
 	}
+
 	table.sorting[index] = true
 	slock.Unlock()
 
@@ -81,9 +82,11 @@ func (table *Table) sortIndex(index string) {
 
 		lock := table.lock
 		lock.Lock()
+
 		indexes := table.indexes
-		length := len(indexes[index])
 		sort.IntSlice(indexes[index]).Sort()
+
+		length := len(indexes[index])
 		lock.Unlock()
 
 		end := time.Now().Unix()
@@ -99,8 +102,7 @@ func (table *Table) insert(row Row, isLoad bool) error {
 	lock.Lock()
 	defer lock.Unlock()
 
-	if _, ok := table.idxIndexes[uid]; ok { //exist
-		rid := table.idxIndexes[uid]
+	if rid, ok := table.idxIndexes[uid]; ok { //exist
 		log.Printf("record id[%d] is exist in table %s %d row", uid, tableName, rid)
 		return fmt.Errorf("record %d is exist in %s", uid, tableName)
 	}
@@ -137,13 +139,15 @@ func (table *Table) insert(row Row, isLoad bool) error {
 	//存在索引，创建索引
 	val := reflect.ValueOf(row)
 	for i := 0; i < len(indexs); i++ {
-		if len(indexs[i]) == 0 {
+		indexArr := indexs[i]
+		if len(indexArr) == 0 {
 			continue
 		}
+
 		pk := tableName
-		sort.StringSlice(indexs[i]).Sort()
-		for j := 0; j < len(indexs[i]); j++ {
-			pk += fmt.Sprintf(":%s:%v", indexs[i][j], reflect.Indirect(val).FieldByName(indexs[i][j]))
+		sort.StringSlice(indexArr).Sort()
+		for j := 0; j < len(indexArr); j++ {
+			pk += fmt.Sprintf(":%s:%v", indexArr[j], reflect.Indirect(val).FieldByName(indexArr[j]))
 		}
 		table.indexes[pk] = append(table.indexes[pk], uid)
 		//索引排序
@@ -251,7 +255,7 @@ func (table *Table) Delete(row Row) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	rid, ok := table.idxIndexes[uid]
+	idx, ok := table.idxIndexes[uid]
 	if !ok {
 		return
 	}
@@ -259,19 +263,23 @@ func (table *Table) Delete(row Row) {
 	meta := table.metas[uid]
 	delete(table.idxIndexes, uid)
 	delete(table.metas, uid)
-	put(tableName, rid)
+	table.putIdx(idx)
 
 	//发起持久化指令
 	putTrx(&Transaction{Cmd: "DELETE", TableName: tableName, ID: uid, Version: meta.Version})
 
 	//删除主键列表
 	pk := PRIMARYKEY
-	for k := 0; k < len(table.indexes[pk]); k++ {
-		if table.indexes[pk][k] == uid {
-			table.indexes[pk][k] = table.indexes[pk][len(table.indexes[pk])-1]
-			table.indexes[pk] = table.indexes[pk][:len(table.indexes[pk])-1]
+	indexArr := table.indexes[pk]
+	for i := 0; i < len(indexArr); i++ {
+		if indexArr[i] == uid {
+			arrLen := len(indexArr)
+			indexArr[i] = indexArr[arrLen-1]
+			indexArr = indexArr[:arrLen-1]
 		}
 	}
+	table.indexes[pk] = indexArr
+
 	//列表排序
 	table.sortIndex(pk)
 
@@ -285,22 +293,59 @@ func (table *Table) Delete(row Row) {
 	//存在索引，删除索引
 	val := reflect.ValueOf(row)
 	for i := 0; i < len(indexs); i++ {
-		if len(indexs[i]) == 0 {
+		indexArr := indexs[i]
+		if len(indexArr) == 0 {
 			continue
 		}
+
 		pk := tableName
-		sort.StringSlice(indexs[i]).Sort()
-		for j := 0; j < len(indexs[i]); j++ {
-			pk += fmt.Sprintf(":%s:%v", indexs[i][j], reflect.Indirect(val).FieldByName(indexs[i][j]))
+		sort.StringSlice(indexArr).Sort()
+		for j := 0; j < len(indexArr); j++ {
+			pk += fmt.Sprintf(":%s:%v", indexArr[j], reflect.Indirect(val).FieldByName(indexArr[j]))
 		}
-		for k := 0; k < len(table.indexes[pk]); k++ {
-			if table.indexes[pk][k] == uid {
-				table.indexes[pk][k] = table.indexes[pk][len(table.indexes[pk])-1]
-				table.indexes[pk] = table.indexes[pk][:len(table.indexes[pk])-1]
+
+		pkIndexArr := table.indexes[pk]
+		for k := 0; k < len(pkIndexArr); k++ {
+			if pkIndexArr[k] == uid {
+				arrLen := len(pkIndexArr)
+				pkIndexArr[k] = pkIndexArr[arrLen-1]
+				pkIndexArr = pkIndexArr[:arrLen-1]
 			}
 		}
+		table.indexes[pk] = pkIndexArr
+
 		//索引排序
 		table.sortIndex(pk)
 	}
 	//log.Printf("index is %+v", db.indexs[tableName])
+}
+
+func (table *Table) GetRowBytes(uid int, version uint64) (uint64, []byte) {
+	lock := table.lock
+
+	lock.Lock()
+	defer lock.Unlock()
+
+	meta, ok := table.metas[uid]
+	if !ok || meta.SavedVersion >= version { //记录已被删除或当前版本小于已保存版本
+		return 0, nil
+	}
+
+	idx := table.idxIndexes[uid]
+	obj := table.rows[idx]
+	ver := meta.Version
+	buf, _ := json.Marshal(obj)
+
+	return ver, buf
+}
+
+func (table *Table) UpdateSavedVersion(uid int, version uint64) {
+	lock := table.lock
+	lock.Lock()
+	defer lock.Unlock()
+
+	if meta, ok := table.metas[uid]; ok && meta.SavedVersion < version {
+		meta.SavedVersion = version
+		meta.SavedStamp = time.Now().Unix()
+	}
 }

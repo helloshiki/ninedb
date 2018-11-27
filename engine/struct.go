@@ -37,3 +37,16 @@ type DB struct {
 	dbName string
 	tables map[string]*Table
 }
+
+
+type Transaction struct {
+	DBName string
+	TableName string
+	Cmd       string
+	ID        int
+	Version   uint64
+}
+
+var (
+	putTrx func(*Transaction)
+)
